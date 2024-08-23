@@ -118,7 +118,7 @@ class MULTI_LAN:
             value2 = str(value2) if value2 is not None else ""
 
         ratio = difflib.SequenceMatcher(None, value1, value2).ratio()
-        return ratio > 0.99
+        return ratio == 1
 
     def compare_and_write_to_excel(self):
         """比较并写入到excel"""
