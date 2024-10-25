@@ -4,6 +4,7 @@ import html
 import difflib
 import time
 import glob
+from colorama import Fore, Style, init
 
 
 class MULTI_LAN:
@@ -21,17 +22,17 @@ class MULTI_LAN:
             exit()
         elif len(get_excel) == 1:  # 如果只有一个文件
             xlsx = get_excel[0]
-            print(f"仅一个Excel文件，已自动选择：{xlsx}")
+            print(f"{Fore.GREEN}仅一个Excel文件，已自动选择：{xlsx}{Style.RESET_ALL}")
         else:  # 如果有多个文件
             while True:  # 循环输入选择
                 try:
                     select_xlsx = input(
-                        f"{show_xlsx_dict}\n请选择要进行对比的Excel文件序号（1-{len(get_excel)}）：")  # 输入序号
+                        f"{Fore.YELLOW}{show_xlsx_dict}\n请选择要进行对比的Excel文件序号（1-{len(get_excel)}）：{Style.RESET_ALL}")  # 输入序号
                     xlsx = show_xlsx_dict[int(select_xlsx)]  # 选择的文件
-                    print(f"已选择：{xlsx}")
+                    print(f"{Fore.CYAN}已选择：{xlsx}{Style.RESET_ALL}")
                     break  # 退出循环
                 except (ValueError, KeyError):
-                    print(f"无效的输入！请输入 1 到 {len(get_excel)} 之间的数字。请重新输入。")
+                    print(f"{Fore.RED}无效的输入！请输入 1 到 {len(get_excel)} 之间的数字。请重新输入。{Style.RESET_ALL}")
                     time.sleep(1)
                     continue  # 继续循环 输入
 
@@ -41,17 +42,17 @@ class MULTI_LAN:
         show_sheets_dict = {key: value for key, value in enumerate(get_sheets, 1)}  # 改成字典展示序号和sheet名
         if len(get_sheets) == 1:  # 如果只有一个sheet
             sheet = get_sheets[0]
-            print(f"仅一个sheet，已自动选择：{sheet}")
+            print(f"{Fore.GREEN}仅一个sheet，已自动选择：{sheet}{Style.RESET_ALL}")
         else:  # 如果有多个sheet
             while True:  # 循环输入选择
                 try:
                     user_input = input(
-                        f"{show_sheets_dict}\n请选择要进行对比的sheet的序号（1-{len(get_sheets)}）：")  # 输入序号
+                        f"\n{Fore.YELLOW}{show_sheets_dict}\n请选择要进行对比的sheet的序号（1-{len(get_sheets)}）：{Style.RESET_ALL}")  # 输入序号
                     sheet = show_sheets_dict[int(user_input)]  # 获取选择的sheet
-                    print(f"已选择：{sheet}")
+                    print(f"{Fore.CYAN}已选择：{sheet}{Style.RESET_ALL}")
                     break  # 退出循环
                 except (ValueError, KeyError):
-                    print(f"无效的输入！请输入 1 到 {len(get_sheets)} 之间的数字。请重新输入。")
+                    print(f"{Fore.RED}无效的输入！请输入 1 到 {len(get_sheets)} 之间的数字。请重新输入。{Style.RESET_ALL}")
                     time.sleep(1)
                     continue  # 继续循环 输入
         self.sheet = self.wb[sheet]  # 加载选择的sheet
@@ -63,7 +64,7 @@ class MULTI_LAN:
             self.col_a_values = [cell.value.lower() for cell in self.sheet['A'] if cell.value is not None][1:]
 
             if not self.col_a_values:  # 检查是否为空
-                print("请检查key值！...即将自动退出！")
+                print(f"{Fore.RED}请检查key值！...即将自动退出！{Style.RESET_ALL}")
                 time.sleep(5)
                 exit()
 
@@ -71,7 +72,7 @@ class MULTI_LAN:
             return self.col_a_values
 
         except AttributeError:
-            print("您选择的sheet中A2往下值不正确，请检查！...即将自动退出！")
+            print(f"{Fore.RED}您选择的sheet中A2往下值不正确，请检查！...即将自动退出！{Style.RESET_ALL}")
             time.sleep(5)
             exit()
 
@@ -81,7 +82,7 @@ class MULTI_LAN:
         self.countries = [val for val in row1_values[1:] if val]
 
         if not self.countries:  # 检查是否为空
-            print("第一行中没有国家代码，请检查！...即将自动退出！")
+            print(f"{Fore.RED}第一行中没有国家代码，请检查！...即将自动退出！{Style.RESET_ALL}")
             time.sleep(5)
             exit()
 
