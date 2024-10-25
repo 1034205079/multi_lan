@@ -2,35 +2,89 @@ import openpyxl
 import xml.etree.ElementTree as ET
 import html
 import difflib
+import time
+import glob
 
 
 class MULTI_LAN:
 
-    def __init__(self, original_file):
-        self.original_file = original_file
+    def __init__(self):
+        """加载原始excel文件"""
+        xlsx = None  # 提前初始化 xlsx 变量
+        sheet = None  # 提前初始化 sheet 变量
 
-        try:
-            self.original_wb = openpyxl.load_workbook(self.original_file)
-        except FileNotFoundError:
-            print("原始excel文件不存在！请检查命名或文件")
+        get_excel = glob.glob("**/[!对比][!~]*.xlsx", recursive=True)  # 递归查找所有xlsx文件
+        show_xlsx_dict = {key: value for key, value in enumerate(get_excel, 1)}  # 列表显示序号和文件名
+        if not show_xlsx_dict:  # 如果没有找到文件
+            print("未找到Excel文件！...即将自动退出！")
+            time.sleep(5)
             exit()
+        elif len(get_excel) == 1:  # 如果只有一个文件
+            xlsx = get_excel[0]
+            print(f"仅一个Excel文件，已自动选择：{xlsx}")
+        else:  # 如果有多个文件
+            while True:  # 循环输入选择
+                try:
+                    select_xlsx = input(
+                        f"{show_xlsx_dict}\n请选择要进行对比的Excel文件序号（1-{len(get_excel)}）：")  # 输入序号
+                    xlsx = show_xlsx_dict[int(select_xlsx)]  # 选择的文件
+                    print(f"已选择：{xlsx}")
+                    break  # 退出循环
+                except (ValueError, KeyError):
+                    print(f"无效的输入！请输入 1 到 {len(get_excel)} 之间的数字。请重新输入。")
+                    time.sleep(1)
+                    continue  # 继续循环 输入
 
-        try:
-            self.sheet = self.original_wb["Sheet1"]
-        except KeyError:
-            print(f"工作表 Sheet1 不存在！请检查工作表名称")
-            return
+        """获取全部的sheet"""
+        self.wb = openpyxl.load_workbook(xlsx)  # 加载上面已选择的excel文件
+        get_sheets = self.wb.sheetnames  # sheet名称出来是列表
+        show_sheets_dict = {key: value for key, value in enumerate(get_sheets, 1)}  # 改成字典展示序号和sheet名
+        if len(get_sheets) == 1:  # 如果只有一个sheet
+            sheet = get_sheets[0]
+            print(f"仅一个sheet，已自动选择：{sheet}")
+        else:  # 如果有多个sheet
+            while True:  # 循环输入选择
+                try:
+                    user_input = input(
+                        f"{show_sheets_dict}\n请选择要进行对比的sheet的序号（1-{len(get_sheets)}）：")  # 输入序号
+                    sheet = show_sheets_dict[int(user_input)]  # 获取选择的sheet
+                    print(f"已选择：{sheet}")
+                    break  # 退出循环
+                except (ValueError, KeyError):
+                    print(f"无效的输入！请输入 1 到 {len(get_sheets)} 之间的数字。请重新输入。")
+                    time.sleep(1)
+                    continue  # 继续循环 输入
+        self.sheet = self.wb[sheet]  # 加载选择的sheet
+        time.sleep(3)
 
     def get_key_from_origin(self):
         """获取key值"""
-        self.col_a_values = [cell.value.lower() for cell in self.sheet['A'] if cell.value is not None][1:]
-        print(f"从原始文档获取到key值,并转成小写,共计{len(self.col_a_values)}个\n")
-        return self.col_a_values
+        try:
+            self.col_a_values = [cell.value.lower() for cell in self.sheet['A'] if cell.value is not None][1:]
+
+            if not self.col_a_values:  # 检查是否为空
+                print("请检查key值！...即将自动退出！")
+                time.sleep(5)
+                exit()
+
+            print(f"从原始文档获取到key值,并转成小写,共计{len(self.col_a_values)}个\n")
+            return self.col_a_values
+
+        except AttributeError:
+            print("您选择的sheet中A2往下值不正确，请检查！...即将自动退出！")
+            time.sleep(5)
+            exit()
 
     def get_countries_from_origin(self):
         """获取国家列表"""
         row1_values = list(self.sheet.values)[0]
         self.countries = [val for val in row1_values[1:] if val]
+
+        if not self.countries:  # 检查是否为空
+            print("第一行中没有国家代码，请检查！...即将自动退出！")
+            time.sleep(5)
+            exit()
+
         print(f"获取到了国家列表：{self.countries}\n")
         return self.countries
 
@@ -149,7 +203,7 @@ class MULTI_LAN:
 
 
 if __name__ == '__main__':
-    wb = MULTI_LAN("origin.xlsx")
+    wb = MULTI_LAN()
     wb.get_key_from_origin()
     wb.get_countries_from_origin()
     wb.read_strings_from_xml()
