@@ -6,6 +6,8 @@ import time
 import glob
 from colorama import Fore, Style, init
 
+init(autoreset=True)
+
 
 class MULTI_LAN:
 
