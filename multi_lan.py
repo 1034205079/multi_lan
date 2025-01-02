@@ -39,7 +39,7 @@ class MULTI_LAN:
                     continue  # 继续循环 输入
 
         """获取全部的sheet"""
-        self.wb = openpyxl.load_workbook(xlsx, data_only=False)  # 加载上面已选择的excel文件
+        self.wb = openpyxl.load_workbook(xlsx, data_only=False)  # 修改：设置data_only=False以保留格式
         get_sheets = self.wb.sheetnames  # sheet名称出来是列表
         show_sheets_dict = {key: value for key, value in enumerate(get_sheets, 1)}  # 改成字典展示序号和sheet名
         if len(get_sheets) == 1:  # 如果只有一个sheet
