@@ -12,6 +12,12 @@ init(autoreset=True)
 class MULTI_LAN:
 
     def __init__(self):
+        """个人信息"""
+        author = "作者:feige"
+        contact = "1034205079@qq.com"
+        print(f"{author}\n{contact}")
+        print("*" * 80, "\n")
+        time.sleep(1)
         """加载原始excel文件"""
         xlsx = None  # 提前初始化 xlsx 变量
         sheet = None  # 提前初始化 sheet 变量
