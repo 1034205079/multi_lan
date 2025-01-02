@@ -39,7 +39,7 @@ class MULTI_LAN:
                     continue  # 继续循环 输入
 
         """获取全部的sheet"""
-        self.wb = openpyxl.load_workbook(xlsx)  # 加载上面已选择的excel文件
+        self.wb = openpyxl.load_workbook(xlsx, data_only=False)  # 加载上面已选择的excel文件
         get_sheets = self.wb.sheetnames  # sheet名称出来是列表
         show_sheets_dict = {key: value for key, value in enumerate(get_sheets, 1)}  # 改成字典展示序号和sheet名
         if len(get_sheets) == 1:  # 如果只有一个sheet
@@ -162,8 +162,15 @@ class MULTI_LAN:
         country_index = self.countries.index(country) + 2
         for row in self.sheet.iter_rows(min_row=2, min_col=1, max_col=country_index, max_row=self.sheet.max_row):
             if row[0].value and row[0].value.lower() == key:
-                excel_value = row[country_index - 1].value
-                return self.clean_value(excel_value)
+                cell = row[country_index - 1]
+                if cell.number_format and "%" in cell.number_format:  # 如果是百分比格式
+                    if isinstance(cell.value, (int, float)):
+                        # 检查原始格式中是否有小数点
+                        if ".0" in cell.number_format:
+                            return f"{cell.value:.1%}"  # 带小数点格式 50.0%
+                        else:
+                            return f"{int(cell.value * 100)}%"  # 不带小数点格式 50%
+                return self.clean_value(cell.value)
         return None
 
     def compare(self, value1, value2):
