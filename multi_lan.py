@@ -98,8 +98,14 @@ class MULTI_LAN:
         return self.countries
 
     def clean_value(self, value):
-        """通用的清理函数"""
+        """通用的清理函数，包含HTML实体解码"""
+        if value is None:
+            return ""
+
         if isinstance(value, str):
+            # 首先进行HTML实体解码（将&lt;转换为<，&gt;转换为>等）
+            value = html.unescape(value)
+
             # 处理Excel中的"\n"文本
             value = value.replace('\\n', '\n')
 
@@ -118,6 +124,10 @@ class MULTI_LAN:
 
             # 去除连续的空行
             value = ' '.join(line for line in value.split('\n') if line.strip())
+
+        else:
+            # 如果不是字符串类型，转换为字符串
+            value = str(value)
 
         return value
 
@@ -176,7 +186,12 @@ class MULTI_LAN:
                             return f"{cell.value:.1%}"  # 带小数点格式 50.0%
                         else:
                             return f"{int(cell.value * 100)}%"  # 不带小数点格式 50%
-                return self.clean_value(cell.value)
+                # 对Excel中的值进行处理，额外去除HTML标签属性中的双引号
+                excel_value = self.clean_value(cell.value)
+                # 专门处理HTML标签属性中的双引号：如 color="%s" 转为 color=%s
+                import re
+                excel_value = re.sub(r'(\w+)="([^"]*)"', r'\1=\2', excel_value)
+                return excel_value
         return None
 
     def compare(self, value1, value2):
@@ -200,22 +215,88 @@ class MULTI_LAN:
         ws_same = wb_same.active
         ws_same.title = "对比相同结果"
 
-        ws_new.append(["Country", "Key", "Excel Value", "XML Value"])
+        ws_new.append(["Country", "Key", "Excel Value", "XML Value", "差异说明"])
         ws_same.append(["Country", "Key", "Excel Value", "XML Value", "二次校验结果"])
 
         row_num = 2
+        diff_count = 0  # 添加差异计数
+        same_count = 0  # 添加相同计数
+
         for country, strings in self.all_values_from_xml.items():
             for key, xml_value in strings.items():
                 excel_value = self.get_excel_value_by_key_and_country(key, country)
                 if not self.compare(xml_value, excel_value):
-                    ws_new.append([country, key, excel_value, xml_value])
+                    # 生成详细的差异描述
+                    diff_detail = self.get_detailed_diff(excel_value, xml_value)
+                    ws_new.append([country, key, excel_value, xml_value, diff_detail])
+                    diff_count += 1
+                    print(f"{Fore.RED}差异发现 - {country}:{key}{Style.RESET_ALL}")
+                    print(f"  Excel: {excel_value}")
+                    print(f"  XML:   {xml_value}")
+                    print(f"  差异:  {diff_detail}\n")
                 else:
                     ws_same.append([country, key, excel_value, xml_value, f'=D{row_num}=C{row_num}'])
+                    same_count += 1
                     row_num += 1
 
         wb_new.save("对比差异结果.xlsx")
         wb_same.save("对比相同结果.xlsx")
-        print("\n差异已写入 对比差异结果.xlsx\n相同的结果已写入 对比相同结果.xlsx \n请核实两个文件")
+
+        print(f"\n{Fore.GREEN}对比完成！{Style.RESET_ALL}")
+        print(f"共发现 {Fore.RED}{diff_count}{Style.RESET_ALL} 处差异，已写入 对比差异结果.xlsx")
+        print(f"共有 {Fore.GREEN}{same_count}{Style.RESET_ALL} 处相同，已写入 对比相同结果.xlsx")
+        print("请核实两个文件")
+
+    def get_detailed_diff(self, excel_value, xml_value):
+        """获取详细的差异描述"""
+        if excel_value is None:
+            excel_value = ""
+        if xml_value is None:
+            xml_value = ""
+
+        excel_str = str(excel_value)
+        xml_str = str(xml_value)
+
+        # 检查常见的差异类型
+        diff_reasons = []
+
+        # 检查引号差异
+        excel_quotes = excel_str.count('"')
+        xml_quotes = xml_str.count('"')
+        if excel_quotes != xml_quotes:
+            diff_reasons.append(f"引号数量不同(Excel:{excel_quotes}, XML:{xml_quotes})")
+
+        # 检查长度差异
+        if len(excel_str) != len(xml_str):
+            diff_reasons.append(f"长度不同(Excel:{len(excel_str)}, XML:{len(xml_str)})")
+
+        # 检查是否只是引号位置不同
+        excel_no_quotes = excel_str.replace('"', '')
+        xml_no_quotes = xml_str.replace('"', '')
+        if excel_no_quotes == xml_no_quotes:
+            diff_reasons.append("仅引号位置/数量不同")
+
+        # 检查HTML标签差异
+        if '<' in excel_str or '<' in xml_str:
+            if excel_str.replace('"', '') == xml_str.replace('"', ''):
+                diff_reasons.append("HTML标签属性引号差异")
+
+        # 检查空格差异
+        if excel_str.replace(' ', '') == xml_str.replace(' ', ''):
+            diff_reasons.append("仅空格差异")
+
+        # 检查特殊字符差异
+        import re
+        excel_clean = re.sub(r'[^\w\s]', '', excel_str)
+        xml_clean = re.sub(r'[^\w\s]', '', xml_str)
+        if excel_clean == xml_clean:
+            diff_reasons.append("仅特殊字符/标点符号差异")
+
+        # 检查大小写差异
+        if excel_str.lower() == xml_str.lower():
+            diff_reasons.append("仅大小写差异")
+
+        return "; ".join(diff_reasons) if diff_reasons else "内容完全不同"
 
 
 if __name__ == '__main__':
