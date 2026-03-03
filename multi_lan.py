@@ -4,6 +4,7 @@ import html
 import difflib
 import time
 import glob
+import re
 from colorama import Fore, Style, init
 
 init(autoreset=True)
@@ -19,51 +20,51 @@ class MULTI_LAN:
         print("*" * 80, "\n")
         time.sleep(1)
         """加载原始excel文件"""
-        xlsx = None  # 提前初始化 xlsx 变量
-        sheet = None  # 提前初始化 sheet 变量
+        xlsx = None
+        sheet = None
 
-        get_excel = glob.glob("**/[!对比][!~]*.xlsx", recursive=True)  # 递归查找所有xlsx文件
-        show_xlsx_dict = {key: value for key, value in enumerate(get_excel, 1)}  # 列表显示序号和文件名
-        if not show_xlsx_dict:  # 如果没有找到文件
+        get_excel = glob.glob("**/[!对比][!~]*.xlsx", recursive=True)
+        show_xlsx_dict = {key: value for key, value in enumerate(get_excel, 1)}
+        if not show_xlsx_dict:
             print("未找到Excel文件！...即将自动退出！")
             time.sleep(5)
             exit()
-        elif len(get_excel) == 1:  # 如果只有一个文件
+        elif len(get_excel) == 1:
             xlsx = get_excel[0]
             print(f"{Fore.GREEN}仅一个Excel文件，已自动选择：{xlsx}{Style.RESET_ALL}")
-        else:  # 如果有多个文件
-            while True:  # 循环输入选择
+        else:
+            while True:
                 try:
                     select_xlsx = input(
-                        f"{Fore.YELLOW}{show_xlsx_dict}\n请选择要进行对比的Excel文件序号（1-{len(get_excel)}）：{Style.RESET_ALL}")  # 输入序号
-                    xlsx = show_xlsx_dict[int(select_xlsx)]  # 选择的文件
+                        f"{Fore.YELLOW}{show_xlsx_dict}\n请选择要进行对比的Excel文件序号（1-{len(get_excel)}）：{Style.RESET_ALL}")
+                    xlsx = show_xlsx_dict[int(select_xlsx)]
                     print(f"{Fore.CYAN}已选择：{xlsx}{Style.RESET_ALL}")
-                    break  # 退出循环
+                    break
                 except (ValueError, KeyError):
                     print(f"{Fore.RED}无效的输入！请输入 1 到 {len(get_excel)} 之间的数字。请重新输入。{Style.RESET_ALL}")
                     time.sleep(1)
-                    continue  # 继续循环 输入
+                    continue
 
         """获取全部的sheet"""
-        self.wb = openpyxl.load_workbook(xlsx, data_only=False)  # 修改：设置data_only=False以保留格式
-        get_sheets = self.wb.sheetnames  # sheet名称出来是列表
-        show_sheets_dict = {key: value for key, value in enumerate(get_sheets, 1)}  # 改成字典展示序号和sheet名
-        if len(get_sheets) == 1:  # 如果只有一个sheet
+        self.wb = openpyxl.load_workbook(xlsx, data_only=False)
+        get_sheets = self.wb.sheetnames
+        show_sheets_dict = {key: value for key, value in enumerate(get_sheets, 1)}
+        if len(get_sheets) == 1:
             sheet = get_sheets[0]
             print(f"{Fore.GREEN}仅一个sheet，已自动选择：{sheet}{Style.RESET_ALL}")
-        else:  # 如果有多个sheet
-            while True:  # 循环输入选择
+        else:
+            while True:
                 try:
                     user_input = input(
-                        f"\n{Fore.YELLOW}{show_sheets_dict}\n请选择要进行对比的sheet的序号（1-{len(get_sheets)}）：{Style.RESET_ALL}")  # 输入序号
-                    sheet = show_sheets_dict[int(user_input)]  # 获取选择的sheet
+                        f"\n{Fore.YELLOW}{show_sheets_dict}\n请选择要进行对比的sheet的序号（1-{len(get_sheets)}）：{Style.RESET_ALL}")
+                    sheet = show_sheets_dict[int(user_input)]
                     print(f"{Fore.CYAN}已选择：{sheet}{Style.RESET_ALL}")
-                    break  # 退出循环
+                    break
                 except (ValueError, KeyError):
                     print(f"{Fore.RED}无效的输入！请输入 1 到 {len(get_sheets)} 之间的数字。请重新输入。{Style.RESET_ALL}")
                     time.sleep(1)
-                    continue  # 继续循环 输入
-        self.sheet = self.wb[sheet]  # 加载选择的sheet
+                    continue
+        self.sheet = self.wb[sheet]
         time.sleep(3)
 
     def get_key_from_origin(self):
@@ -71,7 +72,7 @@ class MULTI_LAN:
         try:
             self.col_a_values = [cell.value.lower() for cell in self.sheet['A'] if cell.value is not None][1:]
 
-            if not self.col_a_values:  # 检查是否为空
+            if not self.col_a_values:
                 print(f"{Fore.RED}请检查key值！...即将自动退出！{Style.RESET_ALL}")
                 time.sleep(5)
                 exit()
@@ -89,7 +90,7 @@ class MULTI_LAN:
         row1_values = list(self.sheet.values)[0]
         self.countries = [val for val in row1_values[1:] if val]
 
-        if not self.countries:  # 检查是否为空
+        if not self.countries:
             print(f"{Fore.RED}第一行中没有国家代码，请检查！...即将自动退出！{Style.RESET_ALL}")
             time.sleep(5)
             exit()
@@ -98,12 +99,15 @@ class MULTI_LAN:
         return self.countries
 
     def clean_value(self, value):
-        """通用的清理函数，包含HTML实体解码"""
+        """通用的清理函数，包含HTML实体解码和CDATA处理"""
         if value is None:
             return ""
 
         if isinstance(value, str):
-            # 首先进行HTML实体解码（将&lt;转换为<，&gt;转换为>等）
+            # **首先移除CDATA标签**
+            value = re.sub(r'<!\[CDATA\[(.*?)\]\]>', r'\1', value, flags=re.DOTALL)
+            
+            # HTML实体解码（将&lt;转换为<，&gt;转换为>等）
             value = html.unescape(value)
 
             # 处理Excel中的"\n"文本
@@ -131,6 +135,38 @@ class MULTI_LAN:
 
         return value
 
+    def clean_xml_value(self, value):
+        """专门用于清理XML值的函数，处理CDATA标签"""
+        if value is None:
+            return ""
+        
+        if isinstance(value, str):
+            # 移除CDATA标签：<![CDATA[...]]>
+            value = re.sub(r'<!\[CDATA\[(.*?)\]\]>', r'\1', value, flags=re.DOTALL)
+            
+            # HTML实体解码
+            value = html.unescape(value)
+            
+            # 统一换行符
+            value = value.replace('\r\n', '\n')
+            value = value.replace('\r', '\n')
+            
+            # 去除多余的反斜杠
+            value = value.replace('\\n', '\n')
+            value = value.replace('\\', '')
+            
+            # 去除首尾空格和引号
+            value = value.strip().strip('"').strip()
+            
+            # 处理多余空格
+            value = ' '.join(line.strip() for line in value.split('\n'))
+            value = ' '.join(line for line in value.split('\n') if line.strip())
+            
+        else:
+            value = str(value)
+        
+        return value
+
     def read_strings_from_xml(self):
         """从xml读取字符串"""
         self.all_values_from_xml = {}
@@ -153,8 +189,10 @@ class MULTI_LAN:
                         name_list.append(name.lower())
 
                         if name.lower() in self.col_a_values:
-                            value = html.unescape(string.text) if string.text else ""
-                            value = self.clean_value(value)
+                            # 获取完整的文本内容，包括CDATA
+                            value = ''.join(string.itertext()) if string.text or len(string) > 0 else ""
+                            # 使用专门的XML清理函数
+                            value = self.clean_xml_value(value)
                             key_value[name.lower()] = value
 
                 diff = set(self.col_a_values).difference(set(name_list))
@@ -179,24 +217,21 @@ class MULTI_LAN:
         for row in self.sheet.iter_rows(min_row=2, min_col=1, max_col=country_index, max_row=self.sheet.max_row):
             if row[0].value and row[0].value.lower() == key:
                 cell = row[country_index - 1]
-                if cell.number_format and "%" in cell.number_format:  # 如果是百分比格式
+                if cell.number_format and "%" in cell.number_format:
                     if isinstance(cell.value, (int, float)):
-                        # 检查原始格式中是否有小数点
                         if ".0" in cell.number_format:
-                            return f"{cell.value:.1%}"  # 带小数点格式 50.0%
+                            return f"{cell.value:.1%}"
                         else:
-                            return f"{int(cell.value * 100)}%"  # 不带小数点格式 50%
-                # 对Excel中的值进行处理，额外去除HTML标签属性中的双引号
+                            return f"{int(cell.value * 100)}%"
+                # 对Excel中的值进行处理
                 excel_value = self.clean_value(cell.value)
-                # 专门处理HTML标签属性中的双引号：如 color="%s" 转为 color=%s
-                import re
+                # 处理HTML标签属性中的双引号
                 excel_value = re.sub(r'(\w+)="([^"]*)"', r'\1=\2', excel_value)
                 return excel_value
         return None
 
     def compare(self, value1, value2):
         """直接比较两个已清理的值"""
-        # 确保两者都是字符串
         if not isinstance(value1, str):
             value1 = str(value1) if value1 is not None else ""
         if not isinstance(value2, str):
@@ -219,14 +254,13 @@ class MULTI_LAN:
         ws_same.append(["Country", "Key", "Excel Value", "XML Value", "二次校验结果"])
 
         row_num = 2
-        diff_count = 0  # 添加差异计数
-        same_count = 0  # 添加相同计数
+        diff_count = 0
+        same_count = 0
 
         for country, strings in self.all_values_from_xml.items():
             for key, xml_value in strings.items():
                 excel_value = self.get_excel_value_by_key_and_country(key, country)
                 if not self.compare(xml_value, excel_value):
-                    # 生成详细的差异描述
                     diff_detail = self.get_detailed_diff(excel_value, xml_value)
                     ws_new.append([country, key, excel_value, xml_value, diff_detail])
                     diff_count += 1
@@ -257,7 +291,6 @@ class MULTI_LAN:
         excel_str = str(excel_value)
         xml_str = str(xml_value)
 
-        # 检查常见的差异类型
         diff_reasons = []
 
         # 检查引号差异
@@ -286,7 +319,6 @@ class MULTI_LAN:
             diff_reasons.append("仅空格差异")
 
         # 检查特殊字符差异
-        import re
         excel_clean = re.sub(r'[^\w\s]', '', excel_str)
         xml_clean = re.sub(r'[^\w\s]', '', xml_str)
         if excel_clean == xml_clean:
