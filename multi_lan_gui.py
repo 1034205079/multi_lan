@@ -97,7 +97,7 @@ class MultiLanguageGUI:
             self.log("  安装方法: pip install tkinterdnd2", 'info')
             return
 
-        # 为 APK/AAB 输入框和整个卡片添加拖放支持
+        # 为 APK 输入框和整个卡片添加拖放支持
         self.package_entry.drop_target_register(DND_FILES)
         self.package_entry.dnd_bind('<<Drop>>', self._on_drop_package)
 
@@ -111,20 +111,20 @@ class MultiLanguageGUI:
         self.excel_card.drop_target_register(DND_FILES)
         self.excel_card.dnd_bind('<<Drop>>', self._on_drop_excel)
 
-        self.log("✓ 拖放功能已启用（可拖到卡片任意位置）", 'success')
+
 
     def _on_drop_package(self, event):
-        """处理 APK/AAB 文件拖放"""
+        """处理 APK 文件拖放"""
         file_path = event.data
         # 去除可能的大括号
         if file_path.startswith('{') and file_path.endswith('}'):
             file_path = file_path[1:-1]
 
-        if file_path.lower().endswith(('.apk', '.aab')):
+        if file_path.lower().endswith('.apk'):
             self.package_path.set(file_path)
             self.log(f"✓ 已选择包文件: {os.path.basename(file_path)}", 'success')
         else:
-            messagebox.showwarning("文件类型错误", "请拖放 APK 或 AAB 文件！")
+            messagebox.showwarning("文件类型错误", "请拖放 APK 文件！")
 
     def _on_drop_excel(self, event):
         """处理 Excel 文件拖放"""
@@ -155,20 +155,20 @@ class MultiLanguageGUI:
 
         tk.Label(
             header,
-            text="APK/AAB资源 ↔ Excel对比分析",
+            text="APK资源 ↔ Excel对比分析",
             font=('Microsoft YaHei UI', 10),
             fg=self.colors['text_secondary'],
             bg=self.colors['bg']
         ).pack(side=tk.LEFT, padx=(10, 0), pady=(8, 0))
 
     def _build_step1_package(self, parent):
-        """步骤1：APK/AAB反编译"""
+        """步骤1：APK反编译"""
         self.package_card = self._create_card(parent)
         card = self.package_card
 
         tk.Label(
             card,
-            text="步骤 1：APK/AAB反编译（可选）",
+            text="步骤 1：APK反编译（可选）",
             font=('Microsoft YaHei UI', 11, 'bold'),
             fg=self.colors['text'],
             bg=self.colors['card_bg']
@@ -222,7 +222,7 @@ class MultiLanguageGUI:
         # 提示
         tk.Label(
             card,
-            text="💡 支持 APK 和 AAB 格式文件（可拖到此卡片任意位置）",
+            text="💡 支持 APK 格式文件（可拖到此卡片任意位置）",
             font=('Microsoft YaHei UI', 9),
             fg=self.colors['text_secondary'],
             bg=self.colors['card_bg']
@@ -491,10 +491,10 @@ class MultiLanguageGUI:
         self.root.after(100, self._update_log)
 
     def browse_package(self):
-        """选择APK/AAB文件"""
+        """选择APK文件"""
         filename = filedialog.askopenfilename(
-            title="选择APK或AAB文件",
-            filetypes=[("Package files", "*.apk *.aab"), ("All files", "*.*")]
+            title="选择APK文件",
+            filetypes=[("APK files", "*.apk"), ("All files", "*.*")]
         )
         if filename:
             self.package_path.set(filename)
@@ -527,7 +527,7 @@ class MultiLanguageGUI:
 
         apk_path = self.package_path.get()
         if not apk_path:
-            messagebox.showerror("错误", "请选择APK或AAB文件")
+            messagebox.showerror("错误", "请选择APK文件")
             return
 
         self.is_processing = True
@@ -541,7 +541,7 @@ class MultiLanguageGUI:
         """反编译线程"""
         try:
             self.log("=" * 60, 'primary')
-            self.log("开始APK/AAB反编译", 'primary')
+            self.log("开始APK反编译", 'primary')
             self.log("=" * 60, 'primary')
 
             # 创建APKDecompiler，传递日志回调函数
