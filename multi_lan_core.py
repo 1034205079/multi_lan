@@ -130,10 +130,14 @@ class MultiLanguageCore:
 
         return value
 
-    def read_strings_from_xml(self) -> Dict[str, Dict[str, str]]:
+    def read_strings_from_xml(self) -> Tuple[Dict[str, Dict[str, str]], List[str], Dict[str, List[str]]]:
         """
         从XML文件读取字符串资源
-        :return: {country: {key: value}} 字典
+        :return: (
+            {country: {key: value}} 字典,
+            缺失的语言目录列表,
+            {country: [missing_keys]} 每个语言中缺失的key
+        )
         """
         if not self.countries:
             raise Exception("请先获取国家列表")
@@ -142,7 +146,8 @@ class MultiLanguageCore:
             raise Exception("请先获取key值列表")
 
         self.all_values_from_xml = {}
-        missing_keys_report = {}
+        missing_xml_files = []  # 找不到的语言目录
+        missing_keys_in_xml = {}  # 每个语言中缺失的key
 
         for country in self.countries:
             # 确定XML文件路径
@@ -150,6 +155,12 @@ class MultiLanguageCore:
                 file_path = os.path.join(self.res_base_path, "values", "strings.xml")
             else:
                 file_path = os.path.join(self.res_base_path, f"values-{country}", "strings.xml")
+
+            # 检查文件是否存在
+            if not os.path.exists(file_path):
+                missing_xml_files.append(country)
+                self.all_values_from_xml[country] = {}
+                continue
 
             try:
                 tree = ET.parse(file_path)
@@ -170,18 +181,18 @@ class MultiLanguageCore:
                             key_value[name.lower()] = value
 
                 # 检查缺失的key
-                missing_keys = set(self.col_a_values) - set(name_list)
+                missing_keys = list(set(self.col_a_values) - set(name_list))
                 if missing_keys:
-                    missing_keys_report[country] = list(missing_keys)
+                    missing_keys_in_xml[country] = sorted(missing_keys)
 
                 self.all_values_from_xml[country] = key_value
 
-            except FileNotFoundError:
-                raise Exception(f"XML文件不存在: {file_path}")
-            except ET.ParseError:
-                raise Exception(f"XML文件解析失败: {file_path}")
+            except ET.ParseError as e:
+                raise Exception(f"XML文件解析失败: {file_path}, 错误: {e}")
+            except Exception as e:
+                raise Exception(f"读取XML文件出错: {file_path}, 错误: {e}")
 
-        return self.all_values_from_xml, missing_keys_report
+        return self.all_values_from_xml, missing_xml_files, missing_keys_in_xml
 
     def get_excel_value_by_key_and_country(self, key: str, country: str) -> str:
         """
@@ -196,8 +207,8 @@ class MultiLanguageCore:
         country_index = self.countries.index(country) + 2
 
         for row in self.sheet.iter_rows(
-            min_row=2, 
-            min_col=1, 
+            min_row=2,
+            min_col=1,
             max_col=country_index,
             max_row=self.sheet.max_row
         ):

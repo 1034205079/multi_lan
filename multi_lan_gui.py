@@ -9,8 +9,10 @@ from tkinter import ttk, filedialog, messagebox
 import threading
 import queue
 import subprocess
+import openpyxl
 from multi_lan_core import MultiLanguageCore
 from apk_decompiler import APKDecompiler
+from excel_processor import ExcelProcessor
 
 # 尝试导入拖放支持
 try:
@@ -26,8 +28,8 @@ class MultiLanguageGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("多语言对比工具")
-        self.root.geometry("1100x750")
-        self.root.minsize(1000, 700)
+        self.root.geometry("1100x850")
+        self.root.minsize(1000, 800)
 
         # 配色方案
         self.colors = {
@@ -47,12 +49,15 @@ class MultiLanguageGUI:
         # 核心业务逻辑和工具
         self.core = MultiLanguageCore()
         self.decompiler = None
+        self.excel_processor = ExcelProcessor(log_callback=self.log)
 
         # UI状态变量
         self.package_path = tk.StringVar()
         self.excel_path = tk.StringVar()
         self.selected_sheet = tk.StringVar()
         self.res_base_path = tk.StringVar(value="res")
+        self.sheet_checkboxes = {}  # 存储Sheet复选框 {sheet_name: BooleanVar}
+        self.sheet_frame = None  # Sheet列表框架
         self.is_processing = False
         self.log_queue = queue.Queue()
 
@@ -75,20 +80,57 @@ class MultiLanguageGUI:
         content_frame = tk.Frame(main_frame, bg=self.colors['bg'])
         content_frame.pack(fill=tk.BOTH, expand=True)
 
-        # 左侧操作面板
-        left_frame = tk.Frame(content_frame, bg=self.colors['bg'])
-        left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
+        # 左侧操作面板 - 添加滚动支持
+        left_container = tk.Frame(content_frame, bg=self.colors['bg'])
+        left_container.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
 
-        self._build_step1_package(left_frame)
-        self._build_step2_excel(left_frame)
-        self._build_step3_actions(left_frame)
-        self._build_results_panel(left_frame)
+        # 创建Canvas和Scrollbar
+        self.left_canvas = tk.Canvas(left_container, bg=self.colors['bg'], highlightthickness=0)
+        left_scrollbar = tk.Scrollbar(left_container, orient=tk.VERTICAL, command=self.left_canvas.yview)
+
+        # 创建可滚动的框架
+        self.scrollable_left_frame = tk.Frame(self.left_canvas, bg=self.colors['bg'])
+
+        # 配置Canvas
+        self.left_canvas.configure(yscrollcommand=left_scrollbar.set)
+
+        # 布局
+        left_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.left_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # 在Canvas中创建窗口
+        self.canvas_frame = self.left_canvas.create_window((0, 0), window=self.scrollable_left_frame, anchor=tk.NW)
+
+        # 绑定配置事件
+        self.scrollable_left_frame.bind('<Configure>', self._on_left_frame_configure)
+        self.left_canvas.bind('<Configure>', self._on_canvas_configure)
+
+        # 绑定鼠标滚轮
+        self.left_canvas.bind_all('<MouseWheel>', self._on_mousewheel)
+
+        # 在可滚动框架中构建内容
+        self._build_step1_package(self.scrollable_left_frame)
+        self._build_step2_excel(self.scrollable_left_frame)
+        self._build_step3_actions(self.scrollable_left_frame)
+        self._build_results_panel(self.scrollable_left_frame)
 
         # 右侧日志面板
         right_frame = tk.Frame(content_frame, bg=self.colors['bg'])
         right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
 
         self._build_log_panel(right_frame)
+
+    def _on_left_frame_configure(self, event):
+        """更新Canvas滚动区域"""
+        self.left_canvas.configure(scrollregion=self.left_canvas.bbox('all'))
+
+    def _on_canvas_configure(self, event):
+        """调整Canvas窗口宽度"""
+        self.left_canvas.itemconfig(self.canvas_frame, width=event.width)
+
+    def _on_mousewheel(self, event):
+        """处理鼠标滚轮事件"""
+        self.left_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
     def _setup_drag_drop(self):
         """设置拖放功能"""
@@ -111,7 +153,7 @@ class MultiLanguageGUI:
         self.excel_card.drop_target_register(DND_FILES)
         self.excel_card.dnd_bind('<<Drop>>', self._on_drop_excel)
 
-
+        self.log("✓ 拖放功能已启用（可拖到卡片任意位置）", 'success')
 
     def _on_drop_package(self, event):
         """处理 APK 文件拖放"""
@@ -250,6 +292,22 @@ class MultiLanguageGUI:
             width=30
         ).pack(side=tk.LEFT, ipady=4, padx=(5, 0))
 
+        tk.Button(
+            res_frame,
+            text="浏览",
+            command=self.browse_folder,
+            font=('Microsoft YaHei UI', 9),
+            fg=self.colors['primary'],
+            bg=self.colors['card_bg'],
+            relief=tk.FLAT,
+            cursor='hand2',
+            padx=12,
+            pady=4,
+            bd=1,
+            highlightthickness=1,
+            highlightbackground=self.colors['primary']
+        ).pack(side=tk.LEFT, padx=(5, 0))
+
     def _build_step2_excel(self, parent):
         """步骤2：Excel选择"""
         self.excel_card = self._create_card(parent)
@@ -300,27 +358,11 @@ class MultiLanguageGUI:
             font=('Microsoft YaHei UI', 9),
             fg=self.colors['text_secondary'],
             bg=self.colors['card_bg']
-        ).pack(anchor=tk.W, padx=20, pady=(5, 0))
+        ).pack(anchor=tk.W, padx=20, pady=(5, 10))
 
-        # Sheet选择
-        sheet_frame = tk.Frame(card, bg=self.colors['card_bg'])
-        sheet_frame.pack(fill=tk.X, padx=20, pady=(0, 15))
-
-        tk.Label(
-            sheet_frame,
-            text="Sheet：",
-            font=('Microsoft YaHei UI', 9),
-            fg=self.colors['text_secondary'],
-            bg=self.colors['card_bg']
-        ).pack(side=tk.LEFT)
-
-        self.sheet_combo = ttk.Combobox(
-            sheet_frame,
-            textvariable=self.selected_sheet,
-            state='readonly',
-            font=('Microsoft YaHei UI', 9)
-        )
-        self.sheet_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 0))
+        # Sheet列表容器（动态生成）
+        self.sheet_list_container = tk.Frame(card, bg=self.colors['card_bg'])
+        self.sheet_list_container.pack(fill=tk.X, padx=20, pady=(0, 15))
 
     def _build_step3_actions(self, parent):
         """步骤3：操作按钮"""
@@ -509,15 +551,153 @@ class MultiLanguageGUI:
             self.excel_path.set(filename)
             self.load_excel_sheets(filename)
 
+    def browse_folder(self):
+        """选择res文件夹"""
+        folder = filedialog.askdirectory(
+            title="选择res目录",
+            initialdir=os.getcwd()
+        )
+        if folder:
+            self.res_base_path.set(folder)
+            self.log(f"✓ 已选择res目录: {folder}", 'success')
+
     def load_excel_sheets(self, excel_path):
-        """加载Excel的Sheet列表"""
+        """加载Excel的Sheet列表并显示复选框"""
         try:
+            # 清空之前的Sheet列表
+            for widget in self.sheet_list_container.winfo_children():
+                widget.destroy()
+            self.sheet_checkboxes.clear()
+
+            # 获取所有Sheet
             sheets = self.core.get_excel_sheets(excel_path)
-            self.sheet_combo['values'] = sheets
-            if sheets:
-                self.selected_sheet.set(sheets[0])
+
+            if not sheets:
+                self.log("⚠ Excel文件中没有找到Sheet", 'warning')
+                return
+
+            # 显示Sheet选择标题
+            title_frame = tk.Frame(self.sheet_list_container, bg=self.colors['card_bg'])
+            title_frame.pack(fill=tk.X, pady=(0, 5))
+
+            tk.Label(
+                title_frame,
+                text=f"Sheet列表（共 {len(sheets)} 个）：",
+                font=('Microsoft YaHei UI', 9, 'bold'),
+                fg=self.colors['text'],
+                bg=self.colors['card_bg']
+            ).pack(side=tk.LEFT)
+
+            # 全选/取消全选按钮
+            btn_frame = tk.Frame(title_frame, bg=self.colors['card_bg'])
+            btn_frame.pack(side=tk.RIGHT)
+
+            tk.Button(
+                btn_frame,
+                text="全选",
+                command=self.select_all_sheets,
+                font=('Microsoft YaHei UI', 8),
+                fg=self.colors['primary'],
+                bg=self.colors['card_bg'],
+                relief=tk.FLAT,
+                cursor='hand2',
+                padx=8,
+                pady=2
+            ).pack(side=tk.LEFT, padx=(0, 5))
+
+            tk.Button(
+                btn_frame,
+                text="取消全选",
+                command=self.deselect_all_sheets,
+                font=('Microsoft YaHei UI', 8),
+                fg=self.colors['text_secondary'],
+                bg=self.colors['card_bg'],
+                relief=tk.FLAT,
+                cursor='hand2',
+                padx=8,
+                pady=2
+            ).pack(side=tk.LEFT)
+
+            # 创建Sheet复选框列表（带滚动条，限制高度，两列布局）
+            # 创建容器框架
+            list_container = tk.Frame(self.sheet_list_container, bg='#FAFAFA', relief=tk.FLAT, bd=1)
+            list_container.pack(fill=tk.X)
+
+            # 创建Canvas和Scrollbar
+            canvas = tk.Canvas(list_container, bg='#FAFAFA', highlightthickness=0, height=0)
+            scrollbar = tk.Scrollbar(list_container, orient=tk.VERTICAL, command=canvas.yview)
+
+            # 创建可滚动的框架
+            list_frame = tk.Frame(canvas, bg='#FAFAFA')
+
+            # 配置Canvas
+            canvas.configure(yscrollcommand=scrollbar.set)
+
+            # 为每个Sheet创建复选框 - 两列布局
+            for i, sheet_name in enumerate(sheets):
+                var = tk.BooleanVar(value=True)  # 默认全选
+                self.sheet_checkboxes[sheet_name] = var
+
+                # 计算行列位置
+                row = i // 2
+                col = i % 2
+
+                cb = tk.Checkbutton(
+                    list_frame,
+                    text=sheet_name,
+                    variable=var,
+                    font=('Microsoft YaHei UI', 9),
+                    fg=self.colors['text'],
+                    bg='#FAFAFA',
+                    activebackground='#FAFAFA',
+                    selectcolor='#FAFAFA',
+                    cursor='hand2',
+                    anchor=tk.W
+                )
+                cb.grid(row=row, column=col, sticky=tk.W, padx=(10, 20), pady=3)
+
+            # 配置列权重，使两列均匀分布
+            list_frame.grid_columnconfigure(0, weight=1)
+            list_frame.grid_columnconfigure(1, weight=1)
+
+            # 更新Canvas
+            canvas.create_window((0, 0), window=list_frame, anchor=tk.NW)
+            list_frame.update_idletasks()
+
+            # 计算高度：每行约30px，最多显示3行（6个Sheet）
+            rows_count = (len(sheets) + 1) // 2  # 向上取整
+            max_height = min(rows_count * 30, 120)  # 最多90px（约3行）
+            canvas.configure(height=max_height)
+
+            # 如果超过3行，显示滚动条
+            if rows_count > 3:
+                scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+            canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            canvas.configure(scrollregion=canvas.bbox('all'))
+
+            self.log(f"✓ 发现 {len(sheets)} 个Sheet，已默认全选", 'success')
+
         except Exception as e:
             messagebox.showerror("错误", f"读取Excel失败: {e}")
+            import traceback
+            self.log(traceback.format_exc(), 'error')
+
+    def select_all_sheets(self):
+        """全选所有Sheet"""
+        for var in self.sheet_checkboxes.values():
+            var.set(True)
+        self.log("✓ 已全选所有Sheet", 'info')
+
+    def deselect_all_sheets(self):
+        """取消全选Sheet"""
+        for var in self.sheet_checkboxes.values():
+            var.set(False)
+        self.log("✓ 已取消全选", 'info')
+
+    def get_selected_sheets(self):
+        """获取勾选的Sheet列表"""
+        return [name for name, var in self.sheet_checkboxes.items() if var.get()]
 
     def start_decompile(self):
         """开始反编译APK"""
@@ -536,6 +716,123 @@ class MultiLanguageGUI:
         thread = threading.Thread(target=self._decompile_thread, args=(apk_path,))
         thread.daemon = True
         thread.start()
+
+    def _auto_process_excel(self, excel_path, selected_sheets):
+        """自动处理Excel（格式化），返回处理后的文件路径"""
+        try:
+            base_name = os.path.splitext(os.path.basename(excel_path))[0]
+            dir_name = os.path.dirname(excel_path)
+
+            # 读取原始Excel
+            wb_original = openpyxl.load_workbook(excel_path)
+
+            # 创建新工作簿
+            from openpyxl import Workbook
+            new_wb = Workbook()
+            new_wb.remove(new_wb.active)  # 删除默认sheet
+
+            processed_count = 0
+            needs_processing = False
+
+            for sheet_name in selected_sheets:
+                if sheet_name not in wb_original.sheetnames:
+                    continue
+
+                # 使用processor处理这个sheet
+                ws_original = wb_original[sheet_name]
+                all_rows = list(ws_original.iter_rows(values_only=True))
+
+                if not all_rows:
+                    continue
+
+                # 调用processor的逻辑处理
+                processed_header, processed_data = self._process_sheet_data(all_rows)
+
+                if processed_header:
+                    # 检查是否需要处理（比较原始和处理后的数据）
+                    if len(all_rows) - 1 != len(processed_data) or len(all_rows[0]) != len(processed_header):
+                        needs_processing = True
+
+                    # 创建新sheet
+                    new_ws = new_wb.create_sheet(title=sheet_name)
+                    new_ws.append(processed_header)
+                    for row in processed_data:
+                        new_ws.append(row)
+                    processed_count += 1
+
+            wb_original.close()
+
+            # 如果需要处理，保存新文件
+            if processed_count > 0 and needs_processing:
+                output_name = f"{base_name}_已处理.xlsx"
+                output_path = os.path.join(dir_name, output_name) if dir_name else output_name
+                new_wb.save(output_path)
+                new_wb.close()
+
+                self.log(f"✓ Excel已自动格式化: {output_name}", 'success')
+                self.log(f"  处理了 {processed_count} 个Sheet", 'info')
+                return output_path
+            else:
+                new_wb.close()
+                return None
+
+        except Exception as e:
+            self.log(f"⚠ Excel自动处理失败: {e}，使用原文件继续", 'warning')
+            return None
+
+    def _process_sheet_data(self, all_rows):
+        """处理单个Sheet的数据（Excel processor逻辑）"""
+        if not all_rows:
+            return None, []
+
+        header_row = list(all_rows[0])
+        original_cols = len(header_row)
+
+        # 删除空列
+        non_empty_cols = []
+        for col_idx in range(len(header_row)):
+            col_values = [row[col_idx] if col_idx < len(row) else None for row in all_rows]
+            if any(v is not None and str(v).strip() != '' for v in col_values):
+                non_empty_cols.append(col_idx)
+
+        filtered_header = [header_row[i] for i in non_empty_cols]
+        filtered_rows = []
+        for row in all_rows[1:]:
+            new_row = [row[i] if i < len(row) else None for i in non_empty_cols]
+            filtered_rows.append(new_row)
+
+        # 删除空行
+        non_empty_rows = []
+        for row in filtered_rows:
+            if not all(cell is None or str(cell).strip() == '' for cell in row):
+                non_empty_rows.append(row)
+
+        # 处理列名
+        new_header = []
+        cols_to_delete = []
+
+        for i, col in enumerate(filtered_header):
+            # 检查是否需要删除
+            if col in ['功能模块', '变更版本', '生效状态', '最后更新时间', '更新人', '父记录', 'description']:
+                cols_to_delete.append(i)
+                continue
+
+            # 转换列名
+            new_name = self.excel_processor._get_language_code(col)
+            if i == 0 and (new_name is None or new_name == ''):
+                new_name = 'xml_key'
+            new_header.append(new_name)
+
+        # 从数据中删除指定列
+        if cols_to_delete:
+            final_data = []
+            for row in non_empty_rows:
+                new_row = [row[i] for i in range(len(row)) if i not in cols_to_delete]
+                final_data.append(new_row)
+        else:
+            final_data = non_empty_rows
+
+        return new_header, final_data
 
     def _decompile_thread(self, apk_path):
         """反编译线程"""
@@ -582,67 +879,150 @@ class MultiLanguageGUI:
             messagebox.showerror("错误", "请选择Excel文件")
             return
 
-        if not self.selected_sheet.get():
-            messagebox.showerror("错误", "请选择Sheet")
+        selected_sheets = self.get_selected_sheets()
+        if not selected_sheets:
+            messagebox.showwarning("警告", "请至少勾选一个Sheet进行对比")
             return
 
         self.is_processing = True
         self.compare_btn.config(state=tk.DISABLED, bg='#BDBDBD')
 
-        thread = threading.Thread(target=self._compare_thread)
+        thread = threading.Thread(target=self._compare_thread, args=(selected_sheets,))
         thread.daemon = True
         thread.start()
 
-    def _compare_thread(self):
-        """对比线程"""
+    def _compare_thread(self, selected_sheets):
+        """对比线程（支持多Sheet）"""
         try:
             self.log("=" * 60, 'primary')
             self.log("开始多语言对比", 'primary')
             self.log("=" * 60, 'primary')
 
+            self.log(f"\n将对比 {len(selected_sheets)} 个Sheet", 'info')
+            for sheet in selected_sheets:
+                self.log(f"  - {sheet}", 'info')
+
+            # 自动处理Excel（格式化）
+            excel_path = self.excel_path.get()
+            self.log("\n检查Excel格式...", 'primary')
+
+            # 尝试处理Excel，如果格式已符合则跳过
+            processed_path = self._auto_process_excel(excel_path, selected_sheets)
+            if processed_path and processed_path != excel_path:
+                self.log(f"✓ 使用处理后的Excel: {os.path.basename(processed_path)}", 'success')
+                excel_path = processed_path
+            else:
+                self.log("✓ Excel格式符合要求，无需处理", 'success')
+
             # 更新res路径
             self.core.res_base_path = self.res_base_path.get()
 
-            # 加载Excel
-            self.log("\n加载Excel文件...", 'primary')
-            self.core.load_excel(self.excel_path.get(), self.selected_sheet.get())
-            self.log("✓ Excel加载成功", 'success')
+            total_diff = 0
+            total_same = 0
 
-            # 获取keys
-            keys = self.core.get_keys_from_excel()
-            self.log(f"✓ 加载 {len(keys)} 个Key", 'success')
+            # 创建合并结果工作簿
+            import openpyxl
+            from openpyxl import Workbook
+            wb_diff_all = Workbook()
+            wb_diff_all.remove(wb_diff_all.active)
+            wb_same_all = Workbook()
+            wb_same_all.remove(wb_same_all.active)
 
-            # 获取国家列表
-            countries = self.core.get_countries_from_excel()
-            self.log(f"✓ 国家列表: {', '.join(countries)}", 'success')
+            # 对每个Sheet分别对比
+            for sheet_idx, sheet_name in enumerate(selected_sheets, 1):
+                self.log(f"\n{'=' * 60}", 'primary')
+                self.log(f"Sheet {sheet_idx}/{len(selected_sheets)}: {sheet_name}", 'primary')
+                self.log(f"{'=' * 60}", 'primary')
 
-            # 读取XML
-            self.log("\n读取XML文件...", 'primary')
-            xml_data, missing_keys = self.core.read_strings_from_xml()
+                try:
+                    # 加载Excel
+                    self.log("\n加载Excel文件...", 'primary')
+                    self.core.load_excel(excel_path, sheet_name)
+                    self.log("✓ Excel加载成功", 'success')
 
-            for country in countries:
-                count = len(xml_data.get(country, {}))
-                self.log(f"  {country}: {count} 项", 'info')
+                    # 获取keys
+                    keys = self.core.get_keys_from_excel()
+                    self.log(f"✓ 加载 {len(keys)} 个Key", 'success')
 
-            if missing_keys:
-                self.log(f"\n⚠ 警告: {len(missing_keys)} 个语言目录未找到", 'warning')
-                for key in missing_keys:
-                    self.log(f"  - {key}", 'warning')
+                    # 获取国家列表
+                    countries = self.core.get_countries_from_excel()
+                    self.log(f"✓ 国家列表: {', '.join(countries)}", 'success')
 
-            # 对比
-            self.log("\n开始对比...", 'primary')
-            diff_count, same_count = self.core.compare_and_generate_results()
+                    # 读取XML
+                    self.log("\n读取XML文件...", 'primary')
+                    xml_data, missing_xml_files, missing_keys_in_xml = self.core.read_strings_from_xml()
 
-            self.root.after(0, lambda: self.diff_label.config(text=str(diff_count)))
-            self.root.after(0, lambda: self.same_label.config(text=str(same_count)))
+                    for country in countries:
+                        count = len(xml_data.get(country, {}))
+                        self.log(f"  {country}: {count} 项", 'info')
 
-            self.log("=" * 60, 'success')
-            self.log(f"✓ 对比完成！差异: {diff_count}, 相同: {same_count}", 'success')
+                    # 显示缺失的语言目录
+                    if missing_xml_files:
+                        self.log(f"\n⚠ 警告: {len(missing_xml_files)} 个语言目录未找到", 'warning')
+                        for lang in missing_xml_files:
+                            self.log(f"  - {lang}", 'warning')
+
+                    # 显示缺失的keys统计
+                    if missing_keys_in_xml:
+                        total_missing = sum(len(keys) for keys in missing_keys_in_xml.values())
+                        self.log(f"\n📊 统计: {len(missing_keys_in_xml)} 个语言中共缺失 {total_missing} 个key", 'info')
+
+                        # 显示所有语言的缺失key列表
+                        self.log(f"\n缺失的key详情:", 'primary')
+                        for lang, keys in missing_keys_in_xml.items():
+                            keys_str = ', '.join(keys)
+                            self.log(f"{lang}:[{keys_str}]", 'warning')
+
+                    # 对比
+                    self.log("\n开始对比...", 'primary')
+                    diff_count, same_count = self.core.compare_and_generate_results()
+
+                    total_diff += diff_count
+                    total_same += same_count
+
+                    self.log(f"✓ Sheet '{sheet_name}' 对比完成: 差异={diff_count}, 相同={same_count}", 'success')
+
+                    # 读取临时结果并添加到合并工作簿
+                    if os.path.exists("对比差异结果.xlsx"):
+                        wb_temp = openpyxl.load_workbook("对比差异结果.xlsx")
+                        ws_temp = wb_temp.active
+                        ws_new = wb_diff_all.create_sheet(title=sheet_name)
+                        for row in ws_temp.iter_rows(values_only=True):
+                            ws_new.append(row)
+                        wb_temp.close()
+
+                    if os.path.exists("对比相同结果.xlsx"):
+                        wb_temp = openpyxl.load_workbook("对比相同结果.xlsx")
+                        ws_temp = wb_temp.active
+                        ws_new = wb_same_all.create_sheet(title=sheet_name)
+                        for row in ws_temp.iter_rows(values_only=True):
+                            ws_new.append(row)
+                        wb_temp.close()
+
+                except Exception as e:
+                    self.log(f"✗ Sheet '{sheet_name}' 对比失败: {e}", 'error')
+                    import traceback
+                    self.log(traceback.format_exc(), 'error')
+                    continue
+
+            # 保存合并结果
+            if len(wb_diff_all.sheetnames) > 0:
+                wb_diff_all.save("对比差异结果.xlsx")
+                wb_same_all.save("对比相同结果.xlsx")
+
+            wb_diff_all.close()
+            wb_same_all.close()
+
+            self.root.after(0, lambda: self.diff_label.config(text=str(total_diff)))
+            self.root.after(0, lambda: self.same_label.config(text=str(total_same)))
+
+            self.log("\n" + "=" * 60, 'success')
+            self.log(f"✓ 全部对比完成！总计: 差异={total_diff}, 相同={total_same}", 'success')
             self.log("=" * 60, 'success')
 
             self.root.after(0, lambda: messagebox.showinfo(
                 "完成",
-                f"对比完成！\n差异: {diff_count}\n相同: {same_count}\n\n结果已保存到Excel文件"
+                f"对比完成！\n\n处理了 {len(selected_sheets)} 个Sheet\n总计差异: {total_diff}\n总计相同: {total_same}\n\n结果已保存到Excel文件"
             ))
 
         except Exception as e:

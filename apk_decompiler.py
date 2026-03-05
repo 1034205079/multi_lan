@@ -1,4 +1,4 @@
-# apk_decompiler.py - APK反编译工具（带日志回调）
+# apk_decompiler.py - APK反编译工具（带日志回调 + Java支持：优先系统，备用项目）
 import os
 import subprocess
 import shutil
@@ -7,6 +7,7 @@ import time
 import zipfile
 from colorama import Fore, Style, init
 import re
+import platform
 
 init(autoreset=True)
 
@@ -24,6 +25,7 @@ class APKDecompiler:
         self.apk_path = None
         self.output_dir = "decompiled_res"
         self.temp_apk_dir = "temp_minimal_apk"
+        self.java_path = self._find_java()
         self.apktool_path = self._find_apktool()
 
     def _log(self, message, level='info'):
@@ -37,24 +39,78 @@ class APKDecompiler:
             # 默认打印到控制台
             print(message)
 
+    def _find_java(self):
+        """查找Java环境（优先使用系统Java，系统没有再用项目内的）"""
+        # 1. 检查系统Java环境（优先）
+        try:
+            result = subprocess.run(['java', '-version'],
+                                    capture_output=True,
+                                    text=True,
+                                    timeout=5)
+            if result.returncode == 0 or 'java version' in result.stderr.lower():
+                self._log("✓ 使用系统Java环境", 'success')
+                return 'java'
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+        # 2. 检查项目内的Java（备用）
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+
+        # 根据操作系统确定Java可执行文件名
+        if platform.system() == 'Windows':
+            java_exe = 'java.exe'
+        else:
+            java_exe = 'java'
+
+        # 项目内Java路径
+        local_java_paths = [
+            os.path.join(script_dir, 'java', 'bin', java_exe),
+            os.path.join(script_dir, 'jre', 'bin', java_exe),
+            os.path.join(script_dir, 'jdk', 'bin', java_exe),
+        ]
+
+        for java_path in local_java_paths:
+            if os.path.exists(java_path):
+                try:
+                    result = subprocess.run([java_path, '-version'],
+                                            capture_output=True,
+                                            text=True,
+                                            timeout=5)
+                    if result.returncode == 0 or 'java version' in result.stderr.lower():
+                        self._log(f"✓ 使用项目内的Java（系统未安装）: {java_path}", 'success')
+                        return java_path
+                except Exception:
+                    pass
+
+        self._log("⚠ 未检测到Java环境（系统和项目内都没有）", 'warning')
+        return None
+
     def _find_apktool(self):
-        """查找apktool工具"""
-        # 检查系统是否安装了apktool
+        """查找apktool工具（优先使用项目内的apktool）"""
+        # 1. 检查项目内的apktool.jar
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+
+        local_apktool_paths = [
+            os.path.join(script_dir, 'apktool', 'apktool.jar'),
+            os.path.join(script_dir, 'apktool.jar'),
+        ]
+
+        for apktool_path in local_apktool_paths:
+            if os.path.exists(apktool_path):
+                self._log(f"✓ 检测到项目内的apktool: {apktool_path}", 'success')
+                return apktool_path
+
+        # 2. 检查系统是否安装了apktool
         try:
             result = subprocess.run(['apktool', '--version'],
                                     capture_output=True,
                                     text=True,
                                     timeout=5)
             if result.returncode == 0:
-                self._log("✓ 检测到已安装的apktool", 'success')
+                self._log("✓ 检测到系统安装的apktool", 'success')
                 return 'apktool'
         except (FileNotFoundError, subprocess.TimeoutExpired):
             pass
-
-        # 检查当前目录是否有apktool.jar
-        if os.path.exists('apktool.jar'):
-            self._log("✓ 检测到当前目录的apktool.jar", 'success')
-            return 'apktool.jar'
 
         self._log("⚠ 未检测到apktool工具", 'warning')
         return None
@@ -110,7 +166,21 @@ class APKDecompiler:
         self._log("\n方法2: 手动下载", 'primary')
         self._log("  1. 访问: https://ibotpeaches.github.io/Apktool/", 'info')
         self._log("  2. 下载 apktool.jar", 'info')
-        self._log("  3. 将 apktool.jar 放在当前目录", 'info')
+        self._log("  3. 将 apktool.jar 放在 apktool 文件夹中", 'info')
+        self._log("=" * 80, 'error')
+
+        return False
+
+    def check_java(self):
+        """检查Java环境"""
+        if self.java_path:
+            return True
+
+        self._log("=" * 80, 'error')
+        self._log("未找到Java环境！", 'error')
+        self._log("\n请确保：", 'warning')
+        self._log("  1. 系统已安装Java（JRE或JDK）（推荐）", 'info')
+        self._log("  2. 或者项目内包含 java 文件夹（备用）", 'info')
         self._log("=" * 80, 'error')
 
         return False
@@ -218,6 +288,9 @@ class APKDecompiler:
 
     def decompile(self):
         """反编译APK文件（删除无关文件后反编译）"""
+        if not self.check_java():
+            return False
+
         if not self.check_apktool():
             return False
 
@@ -249,11 +322,13 @@ class APKDecompiler:
             self._log("\n步骤: 反编译精简APK...", 'primary')
 
             # 构建apktool命令 - 反编译精简APK
-            # 不使用-r -s参数，让apktool正常反编译资源
-            if self.apktool_path == 'apktool.jar':
-                cmd = ['java', '-jar', 'apktool.jar', 'd', minimal_apk,
+            # 判断apktool是jar文件还是系统命令
+            if self.apktool_path.endswith('.jar'):
+                # 使用jar文件
+                cmd = [self.java_path, '-jar', self.apktool_path, 'd', minimal_apk,
                        '-o', self.output_dir, '-f']
             else:
+                # 使用系统命令
                 cmd = ['apktool', 'd', minimal_apk,
                        '-o', self.output_dir, '-f']
 
@@ -327,7 +402,7 @@ class APKDecompiler:
 
         except FileNotFoundError as e:
             self._log(f"\n✗ 错误: {e}", 'error')
-            self._log("请确保Java已安装（运行apktool.jar需要Java）", 'error')
+            self._log("请确保Java已正确配置", 'error')
             return False
         except Exception as e:
             self._log(f"\n✗ 反编译过程出错: {e}", 'error')
